@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 type Format = "horizontal" | "vertical";
+type PhotoSlot = { file: File | null; time: string };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -36,7 +37,13 @@ export function TimelapseStudio() {
   const [category, setCategory] = useState<"arte" | "lego">("lego");
   const [focus, setFocus] = useState(77);
   const [duration, setDuration] = useState(15);
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoSlots, setPhotoSlots] = useState<PhotoSlot[]>([
+    { file: null, time: "00:00:00" },
+    { file: null, time: "00:00:00" },
+    { file: null, time: "00:00:00" },
+  ]);
+  const selectedSlots = photoSlots.filter((slot): slot is { file: File; time: string } => Boolean(slot.file));
+  const photos = selectedSlots.map((slot) => slot.file);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("Escolhe uma gravação para começar.");
@@ -116,9 +123,17 @@ export function TimelapseStudio() {
     }
   };
 
-  const addPhotos = (event: ChangeEvent<HTMLInputElement>) => {
-    const next = Array.from(event.target.files || []).slice(0, 3);
-    setPhotos(next);
+  const setPhoto = (index: number, file: File | null) => {
+    setPhotoSlots((slots) => slots.map((slot, slotIndex) => slotIndex === index ? { ...slot, file } : slot));
+  };
+
+  const setPhotoTime = (index: number, time: string) => {
+    setPhotoSlots((slots) => slots.map((slot, slotIndex) => slotIndex === index ? { ...slot, time } : slot));
+  };
+
+  const pastePhoto = (index: number, event: React.ClipboardEvent<HTMLLabelElement>) => {
+    const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+    if (file) { event.preventDefault(); setPhoto(index, file); setStatus(`Imagem ${index + 1} colada com sucesso.`); }
   };
 
   const drawPhoto = async (ctx: CanvasRenderingContext2D, file: File) => {
@@ -133,11 +148,38 @@ export function TimelapseStudio() {
     URL.revokeObjectURL(url);
   };
 
+  const loadPhoto = async (file: File) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.src = url;
+    await image.decode();
+    return { image, url };
+  };
+
+  const drawLoadedPhoto = (ctx: CanvasRenderingContext2D, image: HTMLImageElement) => {
+    const scale = Math.max(ctx.canvas.width / image.width, ctx.canvas.height / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    ctx.drawImage(image, (ctx.canvas.width - width) / 2, (ctx.canvas.height - height) / 2, width, height);
+  };
+
+  const drawTimestamp = (ctx: CanvasRenderingContext2D, time: string) => {
+    if (!time.trim()) return;
+    const fontSize = Math.round(ctx.canvas.width * 0.035);
+    ctx.font = `800 ${fontSize}px sans-serif`;
+    const padding = fontSize * 0.55;
+    const width = ctx.measureText(time).width + padding * 2;
+    ctx.fillStyle = "rgba(24,19,33,.82)";
+    ctx.fillRect(ctx.canvas.width - width - padding, ctx.canvas.height - fontSize - padding * 2, width, fontSize + padding);
+    ctx.fillStyle = "#ffd760";
+    ctx.fillText(time, ctx.canvas.width - width, ctx.canvas.height - padding * 1.35);
+  };
+
   const generate = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !sourceUrl) {
-      setStatus("Primeiro escolhe a gravação da live.");
+    if (!video || !canvas || (!sourceUrl && photos.length === 0)) {
+      setStatus("Escolhe uma gravação ou coloca pelo menos uma imagem.");
       return;
     }
     setBusy(true);
@@ -146,9 +188,10 @@ export function TimelapseStudio() {
     setDownloads({});
     setStatus("A criar o timelapse… mantém esta página aberta.");
     try {
-      if (!video.duration || Number.isNaN(video.duration)) {
+      if (sourceUrl && (!video.duration || Number.isNaN(video.duration))) {
         await waitFor(video, "loadedmetadata");
       }
+      const loadedPhotos = await Promise.all(photos.map(loadPhoto));
       const results: Partial<Record<Format, string>> = {};
       const formats: Format[] = ["horizontal", "vertical"];
       for (let formatIndex = 0; formatIndex < formats.length; formatIndex += 1) {
@@ -167,18 +210,25 @@ export function TimelapseStudio() {
         recorder.start(1000);
         const frames = duration * 24;
         for (let frame = 0; frame < frames; frame += 1) {
-          const target = Math.min(video.duration - 0.04, (frame / Math.max(1, frames - 1)) * video.duration);
-          if (Math.abs(video.currentTime - target) > 0.015) { video.currentTime = target; await waitFor(video, "seeked"); }
-          drawFrame(ctx, video, outputFormat);
+          if (sourceUrl) {
+            const target = Math.min(video.duration - 0.04, (frame / Math.max(1, frames - 1)) * video.duration);
+            if (Math.abs(video.currentTime - target) > 0.015) { video.currentTime = target; await waitFor(video, "seeked"); }
+            drawFrame(ctx, video, outputFormat);
+          } else {
+            const imageIndex = Math.min(loadedPhotos.length - 1, Math.floor((frame / frames) * loadedPhotos.length));
+            drawLoadedPhoto(ctx, loadedPhotos[imageIndex].image);
+            drawTimestamp(ctx, selectedSlots[imageIndex].time);
+          }
           if (frame % 6 === 0) setProgress(Math.round(((formatIndex + frame / frames) / formats.length) * 94));
           await sleep(1000 / 24);
         }
-        for (let index = 0; index < photos.length; index += 1) { await drawPhoto(ctx, photos[index]); await sleep(650); }
+        if (sourceUrl) for (let index = 0; index < photos.length; index += 1) { await drawPhoto(ctx, photos[index]); drawTimestamp(ctx, selectedSlots[index].time); await sleep(650); }
         recorder.stop();
         await finished;
         results[outputFormat] = URL.createObjectURL(new Blob(chunks, { type: mimeType }));
       }
       setDownloads(results);
+      loadedPhotos.forEach(({ url }) => URL.revokeObjectURL(url));
       setProgress(100);
       setStatus("As duas versões estão prontas para descarregar e publicar.");
     } catch (error) {
@@ -237,9 +287,18 @@ export function TimelapseStudio() {
           </div>
           {format === "vertical" && <label className="range-row"><span>Centro do LEGO</span><input aria-label="Posição horizontal do LEGO" type="range" min="50" max="100" value={focus} onChange={(event) => setFocus(Number(event.target.value))} /><output>{focus}%</output></label>}
 
-          <div className="field-row">
-            <label><span>Duração final</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}><option value="8">8 segundos</option><option value="15">15 segundos</option><option value="30">30 segundos</option></select></label>
-            <label><span>Fotos de progresso</span><input className="photo-input" type="file" accept="image/*" multiple onChange={addPhotos} /><small>{photos.length}/3 escolhidas · a 3.ª é opcional</small></label>
+          <div className="field-row duration-row">
+            <label><span>Duração final</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}><option value="8">8 segundos</option><option value="15">15 segundos</option><option value="30">30 segundos</option><option value="60">1 minuto</option><option value="90">1 minuto e 30</option><option value="120">2 minutos</option></select></label>
+          </div>
+          <div className="photo-heading"><b>Imagens e horários</b><span>A 3.ª imagem é opcional</span></div>
+          <div className="photo-slots">
+            {photoSlots.map((slot, index) => <label className={slot.file ? "photo-slot filled" : "photo-slot"} key={index} tabIndex={0} onPaste={(event) => pastePhoto(index, event)}>
+              <span className="photo-number">0{index + 1}</span>
+              <b>{slot.file?.name || "Colar ou escolher imagem"}</b>
+              <small>Ctrl+V nesta caixa</small>
+              <input type="file" accept="image/*" onChange={(event) => setPhoto(index, event.target.files?.[0] || null)} />
+              <input className="time-input" aria-label={`Horário da imagem ${index + 1}`} type="text" inputMode="numeric" placeholder="HH:MM:SS" value={slot.time} onChange={(event) => setPhotoTime(index, event.target.value)} />
+            </label>)}
           </div>
         </div>
 
@@ -252,7 +311,7 @@ export function TimelapseStudio() {
           <video ref={videoRef} src={sourceUrl} muted playsInline preload="metadata" onLoadedData={refreshPreview} />
           <div className="status" aria-live="polite"><span>{status}</span>{busy && <b>Falta {100 - progress}%</b>}</div>
           {busy && <div className="progress"><i style={{ width: `${progress}%` }} /></div>}
-          <button className="generate" type="button" disabled={busy || !sourceUrl} onClick={generate}>{busy ? "A gerar…" : "Gerar timelapse"}<span>→</span></button>
+          <button className="generate" type="button" disabled={busy} onClick={generate}>{busy ? "A gerar…" : "Gerar os 2 timelapses"}<span>→</span></button>
           <div className="download-grid">
             {downloads.horizontal && <a className="download" href={downloads.horizontal} download={`xcatarina-${category}-horizontal-timelapse.webm`}>Descarregar 16:9</a>}
             {downloads.vertical && <a className="download" href={downloads.vertical} download={`xcatarina-${category}-vertical-timelapse.webm`}>Descarregar 9:16</a>}
