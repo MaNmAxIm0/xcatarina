@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Category = "art" | "lego";
 type VideoFormat = "horizontal" | "vertical";
+type VideoVariant = { durationSeconds: number; horizontalUrl: string; verticalUrl: string; horizontalDownloadUrl: string; verticalDownloadUrl: string };
 
 type VideoItem = {
   id: string;
@@ -20,6 +21,7 @@ type VideoItem = {
   verticalDownloadUrl: string;
   primaryFormat: VideoFormat;
   format?: VideoFormat;
+  variants: VideoVariant[];
 };
 
 const filters = [
@@ -29,9 +31,9 @@ const filters = [
 ] as const;
 
 const demos: VideoItem[] = [
-  { id: "demo-1", title: "Flores de LEGO", description: "Uma construção cheia de cor, pétala a pétala.", category: "lego", createdAt: "2026-07-18", duration: "00:22", featured: 1, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal" },
-  { id: "demo-2", title: "Retrato em tons pastel", description: "Do primeiro traço aos últimos detalhes.", category: "art", createdAt: "2026-07-11", duration: "00:18", featured: 0, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal" },
-  { id: "demo-3", title: "Pequeno jardim botânico", description: "A mesa transforma-se num jardim de peças.", category: "lego", createdAt: "2026-07-03", duration: "00:15", featured: 0, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal" },
+  { id: "demo-1", title: "Flores de LEGO", description: "Uma construção cheia de cor, pétala a pétala.", category: "lego", createdAt: "2026-07-18", duration: "00:22", featured: 1, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal", variants: [] },
+  { id: "demo-2", title: "Retrato em tons pastel", description: "Do primeiro traço aos últimos detalhes.", category: "art", createdAt: "2026-07-11", duration: "00:18", featured: 0, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal", variants: [] },
+  { id: "demo-3", title: "Pequeno jardim botânico", description: "A mesa transforma-se num jardim de peças.", category: "lego", createdAt: "2026-07-03", duration: "00:15", featured: 0, videoUrl: "", horizontalUrl: "", verticalUrl: "", horizontalDownloadUrl: "", verticalDownloadUrl: "", primaryFormat: "horizontal", variants: [] },
 ];
 
 function normalizeVideo(video: Partial<VideoItem>, index: number): VideoItem {
@@ -53,10 +55,11 @@ function normalizeVideo(video: Partial<VideoItem>, index: number): VideoItem {
     verticalDownloadUrl: video.verticalDownloadUrl || verticalUrl,
     primaryFormat: horizontalUrl ? "horizontal" : "vertical",
     format: video.format,
+    variants: Array.isArray(video.variants) ? video.variants : [],
   };
 }
 
-function safeFilename(title: string, ratio: "16x9" | "9x16", url: string) {
+function safeFilename(title: string, duration: number, ratio: "16x9" | "9x16", url: string) {
   const slug = title
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -64,7 +67,25 @@ function safeFilename(title: string, ratio: "16x9" | "9x16", url: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "timelapse";
   const extension = /\.webm(?:$|\?)/i.test(url) ? "webm" : "mp4";
-  return `xcatarina-${slug}-${ratio}.${extension}`;
+  return `xcatarina-${slug}-${duration}s-${ratio}.${extension}`;
+}
+
+function VideoDownloads({ video }: { video: VideoItem }) {
+  const [duration, setDuration] = useState(30);
+  const selected = video.variants.find((variant) => variant.durationSeconds === duration);
+  if (!video.variants.length) return <div className="video-actions" aria-label={`Downloads de ${video.title}`}>
+    {video.horizontalUrl && <a className="download-horizontal" href={video.horizontalDownloadUrl} download={safeFilename(video.title, 30, "16x9", video.horizontalUrl)}>{downloadLabel(video.horizontalUrl, "16:9")} <span aria-hidden="true">↓</span></a>}
+    {video.verticalUrl && <a className="download-vertical" href={video.verticalDownloadUrl} download={safeFilename(video.title, 30, "9x16", video.verticalUrl)}>{downloadLabel(video.verticalUrl, "9:16")} <span aria-hidden="true">↓</span></a>}
+  </div>;
+  return <div className="variant-downloads">
+    <label><span>Duração</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
+      {video.variants.map((variant) => <option value={variant.durationSeconds} key={variant.durationSeconds}>{variant.durationSeconds === 60 ? "1 minuto" : variant.durationSeconds === 90 ? "1 minuto e 30" : `${variant.durationSeconds} segundos`}{variant.durationSeconds === 30 ? " · principal" : ""}</option>)}
+    </select></label>
+    {selected && <div className="video-actions" aria-label={`Downloads de ${video.title} com ${duration} segundos`}>
+      {selected.horizontalUrl && <a className="download-horizontal" href={selected.horizontalDownloadUrl} download={safeFilename(video.title, duration, "16x9", selected.horizontalUrl)}>{downloadLabel(selected.horizontalUrl, "16:9")} <span aria-hidden="true">↓</span></a>}
+      {selected.verticalUrl && <a className="download-vertical" href={selected.verticalDownloadUrl} download={safeFilename(video.title, duration, "9x16", selected.verticalUrl)}>{downloadLabel(selected.verticalUrl, "9:16")} <span aria-hidden="true">↓</span></a>}
+    </div>}
+  </div>;
 }
 
 function downloadLabel(url: string, ratio: "16:9" | "9:16") {
@@ -149,10 +170,7 @@ export function VideoGallery() {
             </div>
             <h3>{video.title}</h3>
             <p>{video.description}</p>
-            {(video.horizontalUrl || video.verticalUrl) && <div className="video-actions" aria-label={`Downloads de ${video.title}`}>
-              {video.horizontalUrl && <a className="download-horizontal" href={video.horizontalDownloadUrl} download={safeFilename(video.title, "16x9", video.horizontalUrl)}>{downloadLabel(video.horizontalUrl, "16:9")} <span aria-hidden="true">↓</span></a>}
-              {video.verticalUrl && <a className="download-vertical" href={video.verticalDownloadUrl} download={safeFilename(video.title, "9x16", video.verticalUrl)}>{downloadLabel(video.verticalUrl, "9:16")} <span aria-hidden="true">↓</span></a>}
-            </div>}
+            {(video.horizontalUrl || video.verticalUrl) && <VideoDownloads video={video} />}
           </div>
         </article>)}
       </div>
