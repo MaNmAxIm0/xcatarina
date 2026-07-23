@@ -59,7 +59,7 @@ function normalizeVideo(video: Partial<VideoItem>, index: number): VideoItem {
   };
 }
 
-function safeFilename(title: string, duration: number, ratio: "16x9" | "9x16", url: string) {
+function safeFilename(title: string, duration: number, ratio: "horizontal" | "vertical", url: string) {
   const slug = title
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -74,21 +74,21 @@ function VideoDownloads({ video }: { video: VideoItem }) {
   const [duration, setDuration] = useState(30);
   const selected = video.variants.find((variant) => variant.durationSeconds === duration);
   if (!video.variants.length) return <div className="video-actions" aria-label={`Downloads de ${video.title}`}>
-    {video.horizontalUrl && <a className="download-horizontal" href={video.horizontalDownloadUrl} download={safeFilename(video.title, 30, "16x9", video.horizontalUrl)}>{downloadLabel(video.horizontalUrl, "16:9")} <span aria-hidden="true">↓</span></a>}
-    {video.verticalUrl && <a className="download-vertical" href={video.verticalDownloadUrl} download={safeFilename(video.title, 30, "9x16", video.verticalUrl)}>{downloadLabel(video.verticalUrl, "9:16")} <span aria-hidden="true">↓</span></a>}
+    {video.horizontalUrl && <a className="download-horizontal" href={video.horizontalDownloadUrl} download={safeFilename(video.title, 30, "horizontal", video.horizontalUrl)}>{downloadLabel(video.horizontalUrl, "Horizontal")} <span aria-hidden="true">↓</span></a>}
+    {video.verticalUrl && <a className="download-vertical" href={video.verticalDownloadUrl} download={safeFilename(video.title, 30, "vertical", video.verticalUrl)}>{downloadLabel(video.verticalUrl, "Vertical")} <span aria-hidden="true">↓</span></a>}
   </div>;
   return <div className="variant-downloads">
     <label><span>Duração</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
       {video.variants.map((variant) => <option value={variant.durationSeconds} key={variant.durationSeconds}>{variant.durationSeconds === 60 ? "1 minuto" : variant.durationSeconds === 90 ? "1 minuto e 30" : `${variant.durationSeconds} segundos`}{variant.durationSeconds === 30 ? " · principal" : ""}</option>)}
     </select></label>
     {selected && <div className="video-actions" aria-label={`Downloads de ${video.title} com ${duration} segundos`}>
-      {selected.horizontalUrl && <a className="download-horizontal" href={selected.horizontalDownloadUrl} download={safeFilename(video.title, duration, "16x9", selected.horizontalUrl)}>{downloadLabel(selected.horizontalUrl, "16:9")} <span aria-hidden="true">↓</span></a>}
-      {selected.verticalUrl && <a className="download-vertical" href={selected.verticalDownloadUrl} download={safeFilename(video.title, duration, "9x16", selected.verticalUrl)}>{downloadLabel(selected.verticalUrl, "9:16")} <span aria-hidden="true">↓</span></a>}
+      {selected.horizontalUrl && <a className="download-horizontal" href={selected.horizontalDownloadUrl} download={safeFilename(video.title, duration, "horizontal", selected.horizontalUrl)}>{downloadLabel(selected.horizontalUrl, "Horizontal")} <span aria-hidden="true">↓</span></a>}
+      {selected.verticalUrl && <a className="download-vertical" href={selected.verticalDownloadUrl} download={safeFilename(video.title, duration, "vertical", selected.verticalUrl)}>{downloadLabel(selected.verticalUrl, "Vertical")} <span aria-hidden="true">↓</span></a>}
     </div>}
   </div>;
 }
 
-function downloadLabel(url: string, ratio: "16:9" | "9:16") {
+function downloadLabel(url: string, ratio: "Horizontal" | "Vertical") {
   return /\.webm(?:$|\?)/i.test(url) ? `Descarregar ${ratio}` : `Descarregar MP4 ${ratio}`;
 }
 
@@ -161,7 +161,6 @@ export function VideoGallery() {
             {video.videoUrl
               ? <video src={video.videoUrl} controls preload="metadata" playsInline />
               : <div className="placeholder-art"><span>{video.category === "lego" ? "▦" : "✎"}</span><b>{video.category === "lego" ? "LEGO" : "ARTE"}</b></div>}
-            <span className="category">{video.category === "lego" ? "LEGO" : "ARTE"}</span>
           </div>
           <div className="card-copy">
             <div className="card-meta">
